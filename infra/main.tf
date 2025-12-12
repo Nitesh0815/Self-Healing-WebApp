@@ -187,27 +187,6 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
-# SSH Security Group for Bastion
-resource "aws_security_group" "bastion_sg" {
-  name        = "${var.project_name}-bastion-sg"
-  description = "Allow SSH access"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
 # Web Server SG → ALB HTTP + Bastion SSH
 resource "aws_security_group" "web_sg" {
   name        = "${var.project_name}-web-sg"
@@ -221,34 +200,11 @@ resource "aws_security_group" "web_sg" {
     security_groups = [aws_security_group.alb_sg.id]
   }
 
-  ingress {
-    from_port       = 22
-    to_port         = 22
-    protocol        = "tcp"
-    security_groups = [aws_security_group.bastion_sg.id]
-  }
-
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-###########################################################
-# Bastion Host – Jump Server in Public Subnet
-###########################################################
-resource "aws_instance" "bastion" {
-  ami                         = coalesce(var.ami_id, data.aws_ami.amazon_linux.id)
-  instance_type               = var.instance_type
-  key_name                    = var.key_pair_name
-  subnet_id                   = aws_subnet.public[var.public_subnets[0]].id
-  vpc_security_group_ids      = [aws_security_group.bastion_sg.id]
-  associate_public_ip_address = true
-
-  tags = {
-    Name = "${var.project_name}-bastion"
   }
 }
 

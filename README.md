@@ -15,6 +15,11 @@ Resources can be created **manually via AWS Console** or **automatically using T
 
 ---
 
+## Architecture
+![Architecture Diagram](/screenshorts/architecture-diagram.png)
+
+---
+
 ## Prerequisites
 Before deploying this project, ensure you have:
 

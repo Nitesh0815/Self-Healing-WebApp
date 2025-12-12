@@ -1,13 +1,4 @@
 ###############################################
-# Bastion Host Output
-###############################################
-output "bastion_public_ip" {
-  description = "Public IP address of the Bastion Host."
-  value       = aws_instance.bastion.public_ip
-}
-
-
-###############################################
 # Application Load Balancer Output
 ###############################################
 output "alb_dns_name" {
