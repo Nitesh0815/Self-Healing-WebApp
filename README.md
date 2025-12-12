@@ -80,7 +80,7 @@ cd <repository-folder>
 ```
 
 2. **Configure Variables**
-   - Edit terraform.tfvars:
+- Edit terraform.tfvars:
 ```sh
 aws_region     = "ap-south-1"
 project_name   = "selfheal-app"
@@ -108,25 +108,25 @@ terraform validate
 terraform plan
 terraform apply
 ```
-   - Confirm with yes to provision resources
-   - Outputs include bastion host public IP, ALB DNS, and Lambda function ARN
+- Confirm with yes to provision resources
+- Outputs include bastion host public IP, ALB DNS, and Lambda function ARN
 
 ---
 
 ## Configuration Notes for Users
 
 1. **Variables**
-   - Update terraform.tfvars to match your AWS environment (region, key pair, AMIs, CIDR blocks)
-   - alert_email must be a valid email to receive SNS notifications
+- Update terraform.tfvars to match your AWS environment (region, key pair, AMIs, CIDR blocks)
+- alert_email must be a valid email to receive SNS notifications
 
 2. **User Data**
-   - Modify user_data.sh if you need custom EC2 initialization scripts
+- Modify user_data.sh if you need custom EC2 initialization scripts
 
 3. **Lambda**
-   - Update lambda/handler.py and re-zip to self_heal.zip if custom logic is required
+- Update lambda/handler.py and re-zip to self_heal.zip if custom logic is required
 
 4. **Bastion Access**
-   - To connect to private EC2 instances via bastion:
+- To connect to private EC2 instances via bastion:
 ```sh
 ssh -i <your-key.pem> -o ProxyCommand="ssh -i <your-key.pem> ec2-user@<bastion-public-ip> -W %h:%p" ec2-user@<private-ec2-ip>
 ```
