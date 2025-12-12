@@ -45,12 +45,10 @@ Before deploying this project, ensure you have:
      - Private subnets → NAT Gateway (deployed in first public subnet)
 
 2. **Security Groups**
-   - Bastion SG: allow SSH from your IP
    - Web SG: allow HTTP from ALB and SSH from Bastion
    - ALB SG: allow HTTP from anywhere
 
 3. **Instances**
-   - Launch bastion host in public subnet
    - Launch web instances in private subnets
    - Attach appropriate SGs
 
