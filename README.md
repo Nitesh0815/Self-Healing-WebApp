@@ -75,8 +75,8 @@ Before deploying this project, ensure you have:
 
 1. **Clone the Repository**
 ```sh
-git clone <repository-url>
-cd <repository-folder>
+git clone https://github.com/Nitesh0815/Self-Healing-WebApp.git
+cd Self-Healing-WebApp
 ```
 
 2. **Configure Variables**
