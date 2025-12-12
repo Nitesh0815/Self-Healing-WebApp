@@ -1,78 +1,85 @@
-# AWS region
+###############################################
+# General Project Settings
+# Basic inputs used across the entire infra.
+###############################################
 variable "aws_region" {
-  description = "AWS Region"
+  description = "AWS region where all resources will be deployed."
   type        = string
-  default     = "us-east-1"
 }
 
-# Project name
 variable "project_name" {
-  description = "Project Name"
+  description = "Base name used for tagging and naming AWS resources."
   type        = string
-  default     = "selfheal-app"
 }
 
-# VPC CIDR
+variable "environment" {
+  description = "Environment name (prod/dev/test)."
+  type        = string
+}
+
+
+###############################################
+# VPC & Networking Configurations
+###############################################
 variable "vpc_cidr" {
-  description = "VPC CIDR block"
+  description = "CIDR block for the main VPC."
   type        = string
-  default     = "10.0.0.0/16"
 }
 
-# Public Subnets
 variable "public_subnets" {
-  description = "List of Public Subnet CIDRs"
+  description = "List of CIDRs for public subnets."
   type        = list(string)
-  default     = ["10.0.1.0/24", "10.0.2.0/24"]
 }
 
-# Private Subnets
 variable "private_subnets" {
-  description = "List of Private Subnet CIDRs"
+  description = "List of CIDRs for private subnets."
   type        = list(string)
-  default     = ["10.0.101.0/24", "10.0.102.0/24"]
 }
 
-# EC2 Key Pair
-variable "key_pair_name" {
-  description = "Existing EC2 Key Pair Name"
-  type        = string
-}
 
-# EC2 AMI ID
-variable "ami_id" {
-  description = "AMI ID for EC2 instances"
-  type        = string
-  default     = "ami-068c0051b15cdb816" # Amazon Linux 2
-}
-
-# EC2 Instance type
+###############################################
+# EC2 / Compute Settings
+###############################################
 variable "instance_type" {
-  description = "EC2 Instance type"
+  description = "Instance type to use for EC2 instances."
   type        = string
-  default     = "t3.micro"
 }
 
-# Auto Scaling parameters
+variable "key_pair_name" {
+  description = "Name of the EC2 Key Pair for SSH access."
+  type        = string
+}
+
+variable "ami_id" {
+  description = "Optional: Custom AMI ID to override default Amazon Linux 2 lookup."
+  type        = string
+  default     = null
+}
+
+
+###############################################
+# Auto Scaling Group (ASG) Configuration
+###############################################
 variable "desired_capacity" {
-  description = "ASG desired capacity"
+  description = "Desired number of EC2 instances in the ASG."
   type        = number
-  default     = 2
 }
 
 variable "min_size" {
-  description = "ASG minimum size"
+  description = "Minimum number of instances for the ASG."
   type        = number
-  default     = 2
 }
 
 variable "max_size" {
-  description = "ASG maximum size"
+  description = "Maximum number of instances for the ASG."
   type        = number
-  default     = 4
 }
 
+
+###############################################
+# Notifications & Monitoring
+###############################################
 variable "alert_email" {
+  description = "Email address that receives critical alerts via SNS."
   type        = string
-  description = "Email address for SNS alerts"
 }

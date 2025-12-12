@@ -1,10 +1,16 @@
+###############################################
+# Provider Setup
+# Just telling Terraform which cloud + region
+###############################################
 provider "aws" {
   region = var.aws_region
 }
 
-# -----------------------------
-# Data: Latest Amazon Linux 2 AMI (region-aware)
-# -----------------------------
+###########################################################
+# AMI Lookup
+# Pulls the latest Amazon Linux 2 AMI for the current region.
+# This keeps things dynamic and avoids hardcoding AMI IDs.
+###########################################################
 data "aws_ami" "amazon_linux" {
   most_recent = true
   owners      = ["amazon"]
@@ -20,9 +26,10 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
-# -----------------------------
-# VPC, IGW, Subnets
-# -----------------------------
+###########################################################
+# VPC + Networking Section
+# Main VPC, Internet Gateway, and Subnets (public + private)
+###########################################################
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
@@ -33,44 +40,68 @@ resource "aws_vpc" "main" {
   }
 }
 
+# Internet access entry point
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
-  tags   = { Name = "${var.project_name}-igw" }
+
+  tags = {
+    Name = "${var.project_name}-igw"
+  }
 }
 
+# Just grabbing available AZs so subnets can spread nicely
 data "aws_availability_zones" "available" {}
 
-# Public subnets (for ALB/Bastion/NAT)
+###########################################################
+# Public Subnets
+# These host the ALB, Bastion Host, and NAT Gateway.
+###########################################################
 resource "aws_subnet" "public" {
   for_each                = toset(var.public_subnets)
   vpc_id                  = aws_vpc.main.id
   cidr_block              = each.value
   map_public_ip_on_launch = true
-  availability_zone       = element(data.aws_availability_zones.available.names, index(var.public_subnets, each.value))
+
+  # Spread subnets across AZs based on index
+  availability_zone = element(
+    data.aws_availability_zones.available.names,
+    index(var.public_subnets, each.value)
+  )
 
   tags = {
     Name = "${var.project_name}-public-${each.value}"
   }
 }
 
-# Private subnets (for ASG)
+###########################################################
+# Private Subnets
+# These are where your application servers live (ASG instances).
+###########################################################
 resource "aws_subnet" "private" {
   for_each          = toset(var.private_subnets)
   vpc_id            = aws_vpc.main.id
   cidr_block        = each.value
-  availability_zone = element(data.aws_availability_zones.available.names, index(var.private_subnets, each.value))
+  availability_zone = element(
+    data.aws_availability_zones.available.names,
+    index(var.private_subnets, each.value)
+  )
 
   tags = {
     Name = "${var.project_name}-private-${each.value}"
   }
 }
 
-# -----------------------------
-# Route Tables & NAT (one NATGW in first public subnet)
-# -----------------------------
+###########################################################
+# Routing – Public + Private
+###########################################################
+
+# Public Route Table → Internet Gateway
 resource "aws_route_table" "public_rt" {
   vpc_id = aws_vpc.main.id
-  tags   = { Name = "${var.project_name}-public-rt" }
+
+  tags = {
+    Name = "${var.project_name}-public-rt"
+  }
 }
 
 resource "aws_route" "public_internet_access" {
@@ -85,24 +116,38 @@ resource "aws_route_table_association" "public_assoc" {
   route_table_id = aws_route_table.public_rt.id
 }
 
-# Elastic IP for NAT
+###########################################################
+# NAT Gateway Setup
+# Only ONE NAT is created in the FIRST public subnet.
+# Private subnets use this NAT to reach the internet.
+###########################################################
+
 resource "aws_eip" "nat_eip" {
   depends_on = [aws_internet_gateway.igw]
-  tags       = { Name = "${var.project_name}-nat-eip" }
+
+  tags = {
+    Name = "${var.project_name}-nat-eip"
+  }
 }
 
-# NAT Gateway in the first public subnet
 resource "aws_nat_gateway" "nat" {
   allocation_id = aws_eip.nat_eip.id
   subnet_id     = aws_subnet.public[var.public_subnets[0]].id
-  tags          = { Name = "${var.project_name}-nat" }
-  depends_on    = [aws_eip.nat_eip]
+
+  tags = {
+    Name = "${var.project_name}-nat"
+  }
+
+  depends_on = [aws_eip.nat_eip]
 }
 
-# Private route table using NAT
+# Private route table sending outbound traffic → NAT
 resource "aws_route_table" "private_rt" {
   vpc_id = aws_vpc.main.id
-  tags   = { Name = "${var.project_name}-private-rt" }
+
+  tags = {
+    Name = "${var.project_name}-private-rt"
+  }
 }
 
 resource "aws_route" "private_nat_route" {
@@ -117,12 +162,14 @@ resource "aws_route_table_association" "private_assoc" {
   route_table_id = aws_route_table.private_rt.id
 }
 
-# -----------------------------
-# Security Groups
-# -----------------------------
+###########################################################
+# Security Groups – Keeping Traffic Safe and Controlled
+###########################################################
+
+# ALB SG → Allows internet HTTP traffic
 resource "aws_security_group" "alb_sg" {
   name        = "${var.project_name}-alb-sg"
-  description = "Allow HTTP traffic from internet"
+  description = "Allow HTTP from anywhere"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -131,6 +178,7 @@ resource "aws_security_group" "alb_sg" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -139,9 +187,10 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
+# SSH Security Group for Bastion
 resource "aws_security_group" "bastion_sg" {
   name        = "${var.project_name}-bastion-sg"
-  description = "SSH access"
+  description = "Allow SSH access"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -150,6 +199,7 @@ resource "aws_security_group" "bastion_sg" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -158,12 +208,12 @@ resource "aws_security_group" "bastion_sg" {
   }
 }
 
+# Web Server SG → ALB HTTP + Bastion SSH
 resource "aws_security_group" "web_sg" {
   name        = "${var.project_name}-web-sg"
-  description = "Allow traffic from ALB and Bastion"
+  description = "Allow ALB HTTP + Bastion SSH"
   vpc_id      = aws_vpc.main.id
 
-  # allow HTTP from ALB (by referencing ALB SG)
   ingress {
     from_port       = 80
     to_port         = 80
@@ -171,7 +221,6 @@ resource "aws_security_group" "web_sg" {
     security_groups = [aws_security_group.alb_sg.id]
   }
 
-  # allow SSH from bastion security group
   ingress {
     from_port       = 22
     to_port         = 22
@@ -187,9 +236,9 @@ resource "aws_security_group" "web_sg" {
   }
 }
 
-# -----------------------------
-# Bastion Host
-# -----------------------------
+###########################################################
+# Bastion Host – Jump Server in Public Subnet
+###########################################################
 resource "aws_instance" "bastion" {
   ami                         = coalesce(var.ami_id, data.aws_ami.amazon_linux.id)
   instance_type               = var.instance_type
@@ -203,16 +252,14 @@ resource "aws_instance" "bastion" {
   }
 }
 
-# -----------------------------
-# ALB + Target Group + Listener
-# -----------------------------
+###########################################################
+# Application Load Balancer + Target Group + Listener
+###########################################################
 resource "aws_lb" "alb" {
   name               = "${var.project_name}-alb"
   load_balancer_type = "application"
-  subnets = [
-    for k in var.public_subnets : aws_subnet.public[k].id
-  ]
-  security_groups = [aws_security_group.alb_sg.id]
+  subnets            = [for k in var.public_subnets : aws_subnet.public[k].id]
+  security_groups    = [aws_security_group.alb_sg.id]
 }
 
 resource "aws_lb_target_group" "tg" {
@@ -221,6 +268,7 @@ resource "aws_lb_target_group" "tg" {
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
 
+  # ALB health checks – pretty standard config
   health_check {
     path                = "/"
     interval            = 30
@@ -242,26 +290,23 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# -----------------------------
+###########################################################
 # IAM Role for CloudWatch Agent (EC2)
-# -----------------------------
+###########################################################
 resource "aws_iam_role" "cw_agent_role" {
   name = "${var.project_name}-cw-agent-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
-      {
-        Action = "sts:AssumeRole",
-        Effect = "Allow",
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
   })
 }
 
+# Attach essential monitoring policies
 resource "aws_iam_role_policy_attachment" "cw_agent_policy" {
   role       = aws_iam_role.cw_agent_role.name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
@@ -277,14 +322,15 @@ resource "aws_iam_role_policy_attachment" "ssm_policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# EC2 Instance Profile for attaching the role
 resource "aws_iam_instance_profile" "cw_agent_instance_profile" {
   name = "${var.project_name}-cw-agent-profile"
   role = aws_iam_role.cw_agent_role.name
 }
 
-# -----------------------------
-# Launch Template + Auto Scaling
-# -----------------------------
+###########################################################
+# Launch Template + Auto Scaling Group
+###########################################################
 resource "aws_launch_template" "web_lt" {
   name          = "${var.project_name}-lt"
   image_id      = coalesce(var.ami_id, data.aws_ami.amazon_linux.id)
@@ -298,7 +344,7 @@ resource "aws_launch_template" "web_lt" {
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
   metadata_options {
-    http_tokens   = "required"
+    http_tokens   = "required" # enforce IMDSv2
     http_endpoint = "enabled"
   }
 
@@ -309,6 +355,7 @@ resource "aws_launch_template" "web_lt" {
     }
   }
 
+  # User data contains app + monitoring setup
   user_data = filebase64("${path.module}/user_data.sh")
 }
 
@@ -317,7 +364,7 @@ resource "aws_autoscaling_group" "web_asg" {
   max_size         = var.max_size
   min_size         = var.min_size
 
-  # use values() to convert the for_each map -> list
+  # Use all private subnets
   vpc_zone_identifier = values(aws_subnet.private)[*].id
 
   launch_template {
@@ -331,20 +378,19 @@ resource "aws_autoscaling_group" "web_asg" {
   force_delete              = true
 }
 
-# -----------------------------
-# IAM Role for Lambda
-# -----------------------------
+###########################################################
+# IAM Role + Permissions for Lambda (Self-Healing)
+###########################################################
 resource "aws_iam_role" "lambda_role" {
   name = "${var.project_name}-lambda-role"
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
-      {
-        Action    = "sts:AssumeRole"
-        Effect    = "Allow"
-        Principal = { Service = "lambda.amazonaws.com" }
-      }
-    ]
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+    }]
   })
 }
 
@@ -356,21 +402,20 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
 resource "aws_iam_role_policy" "lambda_ec2_reboot" {
   name = "${var.project_name}-lambda-ec2-policy"
   role = aws_iam_role.lambda_role.id
+
   policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["ec2:RebootInstances"]
-        Resource = "*"
-      }
-    ]
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ec2:RebootInstances"]
+      Resource = "*"
+    }]
   })
 }
 
-# -----------------------------
-# Lambda Function for Self-Healing
-# -----------------------------
+###########################################################
+# Self-Healing Lambda Function
+###########################################################
 resource "aws_lambda_function" "self_heal_lambda" {
   function_name = "${var.project_name}-selfheal-lambda"
   role          = aws_iam_role.lambda_role.arn
@@ -392,6 +437,7 @@ resource "aws_lambda_function" "self_heal_lambda" {
   }
 }
 
+# CloudWatch Event Rule → triggers Lambda when EC2 becomes "impaired"
 resource "aws_cloudwatch_event_rule" "selfheal_rule" {
   name        = "${var.project_name}-selfheal-rule"
   description = "Triggers lambda on EC2 status impaired"
@@ -407,14 +453,14 @@ resource "aws_cloudwatch_event_rule" "selfheal_rule" {
 EOF
 }
 
+# Connect rule → Lambda
 resource "aws_cloudwatch_event_target" "selfheal_target" {
   rule      = aws_cloudwatch_event_rule.selfheal_rule.name
   target_id = "lambda-target"
   arn       = aws_lambda_function.self_heal_lambda.arn
 }
 
-
-# Allow CloudWatch to invoke the Lambda
+# Permission allowing CW Events to call Lambda
 resource "aws_lambda_permission" "allow_cw" {
   statement_id  = "AllowExecutionFromCloudWatch"
   action        = "lambda:InvokeFunction"
@@ -423,10 +469,9 @@ resource "aws_lambda_permission" "allow_cw" {
   source_arn    = aws_cloudwatch_event_rule.selfheal_rule.arn
 }
 
-
-# -----------------------------
-# SNS Topic for Notifications
-# -----------------------------
+###########################################################
+# SNS Topics – Alerts & Notifications
+###########################################################
 resource "aws_sns_topic" "selfheal_topic" {
   name = "${var.project_name}-selfheal-topic"
 }
@@ -441,9 +486,25 @@ resource "aws_sns_topic_subscription" "email_sub" {
   endpoint  = var.alert_email
 }
 
-# -----------------------------
-# CloudWatch Alarm for CPU > 95%
-# -----------------------------
+# Subscribe Lambda to alerts SNS so alarms can trigger Lambda via SNS
+resource "aws_sns_topic_subscription" "lambda_from_alerts" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "lambda"
+  endpoint  = aws_lambda_function.self_heal_lambda.arn
+}
+
+# Permission granting SNS the ability to invoke the Lambda
+resource "aws_lambda_permission" "allow_sns" {
+  statement_id  = "AllowExecutionFromSNS"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.self_heal_lambda.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = aws_sns_topic.alerts.arn
+}
+
+###########################################################
+# CloudWatch Alarm – High CPU → SNS (and Lambda via SNS)
+###########################################################
 resource "aws_cloudwatch_metric_alarm" "high_cpu" {
   alarm_name          = "${var.project_name}-high-cpu"
   comparison_operator = "GreaterThanOrEqualToThreshold"
@@ -453,21 +514,21 @@ resource "aws_cloudwatch_metric_alarm" "high_cpu" {
   period              = 300
   statistic           = "Average"
   threshold           = 95
-  alarm_description   = "Triggers Lambda and SNS when EC2 CPU > 95%"
+  alarm_description   = "Triggers SNS when EC2 CPU > 95%"
 
   dimensions = {
     AutoScalingGroupName = aws_autoscaling_group.web_asg.name
   }
 
+  # CloudWatch Alarm → publish to SNS. Lambda will receive SNS messages via subscription.
   alarm_actions = [
-    aws_lambda_function.self_heal_lambda.arn,
     aws_sns_topic.alerts.arn
   ]
 }
 
-# -----------------------------
-# CloudWatch Dashboard
-# -----------------------------
+###########################################################
+# CloudWatch Dashboard – Simple visual view
+###########################################################
 resource "aws_cloudwatch_dashboard" "dashboard" {
   dashboard_name = "${var.project_name}-dashboard"
 
@@ -497,7 +558,7 @@ resource "aws_cloudwatch_dashboard" "dashboard" {
         height = 6
         properties = {
           metrics = [
-            # Use ApplicationELB namespace and arn_suffix dimension
+            # ALB Healthy Host count
             ["AWS/ApplicationELB", "HealthyHostCount", "LoadBalancer", aws_lb.alb.arn_suffix]
           ]
           period = 300
